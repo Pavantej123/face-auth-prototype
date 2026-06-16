@@ -1,12 +1,7 @@
-import CameraCapture from "./components/CameraCapture";
+import Register from "./pages/Register";
 
 function App() {
-  return (
-    <div>
-      <h1>Face Login Prototype</h1>
-      <CameraCapture />
-    </div>
-  );
+  return <Register />;
 }
 
 export default App;
