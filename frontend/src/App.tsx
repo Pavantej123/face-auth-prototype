@@ -1,24 +1,39 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
+import { loadModels } from "./services/faceApiService";
 
 function App() {
   const [page, setPage] = useState<"register" | "login">("register");
 
+  useEffect(() => {
+    const initializeModels = async () => {
+      try {
+        await loadModels();
+        console.log("Models loaded successfully");
+      } catch (error) {
+        console.error("Model loading error:", error);
+      }
+    };
+
+    initializeModels();
+  }, []);
+
   return (
-    <div>
+    <div style={{ padding: "20px" }}>
+      <h1>Face Login Prototype</h1>
+
       <div style={{ marginBottom: "20px" }}>
-        <button onClick={() => setPage("register")}>
+        <button
+          onClick={() => setPage("register")}
+          style={{ marginRight: "10px" }}
+        >
           Register
         </button>
 
-        <button
-          onClick={() => setPage("login")}
-          style={{ marginLeft: "10px" }}
-        >
+        <button onClick={() => setPage("login")}>
           Login
         </button>
-
       </div>
 
       {page === "register" ? <Register /> : <Login />}
