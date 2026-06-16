@@ -18,6 +18,7 @@ function App() {
         >
           Login
         </button>
+
       </div>
 
       {page === "register" ? <Register /> : <Login />}
