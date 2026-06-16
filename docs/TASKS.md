@@ -1,33 +1,28 @@
-# Project Tasks
+# Tasks
 
-## Phase 1 - Setup
+## Phase 1
 
-* [ ] Create React project
-* [ ] Create FastAPI project
-* [ ] Configure Git repository
+* [x] Setup GitHub
+* [x] Setup React
 
-## Phase 2 - Frontend
+## Phase 2
 
 * [ ] Create CameraCapture component
-* [ ] Create Register page
-* [ ] Create Login page
-* [ ] Create Dashboard page
+* [ ] Capture image
+* [ ] Show image preview
 
-## Phase 3 - Backend
+## Phase 3
 
+* [ ] Create FastAPI backend
 * [ ] Create register endpoint
 * [ ] Create login endpoint
-* [ ] Create face service
-* [ ] Create SQLite database
 
-## Phase 4 - Face Recognition
+## Phase 4
 
-* [ ] Generate embeddings
-* [ ] Store embeddings
-* [ ] Verify embeddings
+* [ ] Store user data
+* [ ] Verify face
 
-## Phase 5 - Testing
+## Phase 5
 
 * [ ] Test registration
 * [ ] Test login
-* [ ] Test failure cases
