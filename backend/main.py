@@ -39,6 +39,17 @@ def upload_face(request: FaceUploadRequest):
     }
 
 
+class LoginRequest(BaseModel):
+    email: str
+
+
+@app.post("/login", response_model=dict)
+def login(request: LoginRequest):
+    if request.email in users:
+        return {"success": True, "message": "User found"}
+    return {"success": False, "message": "User not found"}
+
+
 @app.get("/users", response_model=dict)
 def get_users():
     """Return all registered users stored in memory."""
