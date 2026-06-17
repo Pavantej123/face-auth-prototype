@@ -66,6 +66,63 @@ export async function getFaceQualityStatus(
   return "Face ready";
 }
 
+export async function getFaceDetectionSummary(
+  video: HTMLVideoElement
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  const detection = await faceapi
+    .detectSingleFace(video, detectorOptions)
+    .withFaceLandmarks();
+
+  if (!detection) {
+    return null;
+  }
+
+  return {
+    x: detection.detection.box.x,
+    y: detection.detection.box.y,
+    width: detection.detection.box.width,
+    height: detection.detection.box.height,
+  };
+}
+
+export function hasLiveMotion(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number }
+): boolean {
+  const dx = Math.abs(first.x - second.x);
+  const dy = Math.abs(first.y - second.y);
+  const dw = Math.abs(first.width - second.width);
+  const dh = Math.abs(first.height - second.height);
+  const reference = Math.max(first.width, first.height);
+
+  const centerChange = Math.sqrt((dx / reference) ** 2 + (dy / reference) ** 2);
+  return centerChange > 0.035 || dw / reference > 0.03 || dh / reference > 0.03;
+}
+
+export async function verifyFaceMotion(
+  video: HTMLVideoElement,
+  checks = 2,
+  delayMs = 700
+): Promise<boolean> {
+  const initial = await getFaceDetectionSummary(video);
+  if (!initial) {
+    return false;
+  }
+
+  for (let i = 1; i < checks; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const next = await getFaceDetectionSummary(video);
+    if (!next) {
+      return false;
+    }
+
+    if (hasLiveMotion(initial, next)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export function getFaceSampleInstruction(sampleNumber: number): string {
   switch (sampleNumber) {

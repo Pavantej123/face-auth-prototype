@@ -121,6 +121,11 @@ export default function Login({
 
     setLoading(true);
     try {
+      if (!videoRef.current) {
+        showMessage("Camera unavailable.", "error");
+        return;
+      }
+
       const descriptor = await getDescriptor();
       if (!descriptor) {
         showMessage("Login Failed", "error");
