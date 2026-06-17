@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import {  useEffect,useState } from "react";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
 import { loadModels } from "./services/faceApiService";
@@ -7,17 +7,18 @@ function App() {
   const [page, setPage] = useState<"register" | "login">("register");
 
   useEffect(() => {
-    const initializeModels = async () => {
-      try {
-        await loadModels();
-        console.log("Models loaded successfully");
-      } catch (error) {
-        console.error("Model loading error:", error);
-      }
-    };
+  const initializeModels = async () => {
+    const success = await loadModels();
 
-    initializeModels();
-  }, []);
+    if (success) {
+      console.log("Models loaded successfully");
+    } else {
+      console.error("Model loading failed");
+    }
+  };
+
+  initializeModels();
+}, []);
 
   return (
     <div style={{ padding: "20px" }}>

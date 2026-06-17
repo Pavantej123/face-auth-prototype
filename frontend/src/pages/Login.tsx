@@ -1,58 +1,196 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { getFaceDescriptor } from "../services/faceRecognitionService";
 
 export default function Login() {
-  const [email, setEmail] = useState<string>("");
-  const [message, setMessage] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const [email, setEmail] = useState("");
+  const [capturedImage, setCapturedImage] = useState("");
+  const [descriptor, setDescriptor] = useState<number[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (error) {
+        console.error(error);
+        setMessage("Unable to access camera");
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const createImageElement = (
+    dataUrl: string
+  ): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = dataUrl;
+    });
+
+  const handleCapture = async () => {
+    if (!videoRef.current) return;
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.drawImage(
+      videoRef.current,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    const dataUrl = canvas.toDataURL("image/png");
+
+    setCapturedImage(dataUrl);
+
+    try {
+      const imageElement = await createImageElement(dataUrl);
+
+      const faceDescriptor = await getFaceDescriptor(
+        imageElement
+      );
+
+      if (!faceDescriptor) {
+        setMessage("No face detected");
+        return;
+      }
+
+      setDescriptor(Array.from(faceDescriptor));
+
+      setMessage("Face detected successfully");
+    } catch (error) {
+      console.error(error);
+      setMessage("Face detection failed");
+    }
+  };
 
   const handleLogin = async () => {
-    setMessage("");
     if (!email) {
-      setMessage("Please enter your email.");
+      setMessage("Please enter email");
+      return;
+    }
+
+    if (descriptor.length === 0) {
+      setMessage("Please capture your face");
       return;
     }
 
     setLoading(true);
-    try {
-      const response = await fetch("http://127.0.0.1:8000/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
 
-      if (!response.ok) {
-        throw new Error(`Server error ${response.status}`);
-      }
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:8000/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            descriptor,
+          }),
+        }
+      );
 
       const data = await response.json();
-      setMessage(data.message || "Login completed.");
+
+      setMessage(data.message);
     } catch (error) {
       console.error(error);
-      setMessage("Login failed. Please try again.");
+      setMessage("Login failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: 520, margin: "2rem auto", fontFamily: "Arial, sans-serif" }}>
+    <div style={{ maxWidth: 640, margin: "1rem auto" }}>
       <h2>Login</h2>
 
-      <label style={{ display: "block", marginBottom: 12 }}>
-        Email
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ display: "block", width: "100%", padding: "10px", marginTop: 8 }}
+      <input
+        type="email"
+        placeholder="Enter email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "10px",
+          marginBottom: "10px",
+        }}
+      />
+
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{
+          width: "100%",
+          borderRadius: "8px",
+        }}
+      />
+
+      <div style={{ marginTop: "10px" }}>
+        <button
+          onClick={handleCapture}
+          style={{ marginRight: "10px" }}
+        >
+          Capture Face
+        </button>
+
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+        >
+          {loading ? "Logging in..." : "Login"}
+        </button>
+      </div>
+
+      {message && (
+        <p style={{ marginTop: "10px" }}>
+          {message}
+        </p>
+      )}
+
+      {capturedImage && (
+        <img
+          src={capturedImage}
+          alt="captured"
+          style={{
+            width: "100%",
+            marginTop: "10px",
+            borderRadius: "8px",
+          }}
         />
-      </label>
-
-      <button onClick={handleLogin} disabled={loading}>
-        {loading ? "Logging in..." : "Login"}
-      </button>
-
-      {message && <p style={{ marginTop: 16, color: "#222" }}>{message}</p>}
+      )}
     </div>
   );
 }
