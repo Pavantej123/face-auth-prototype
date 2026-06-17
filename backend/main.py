@@ -1,5 +1,6 @@
 ﻿from turtle import distance
-
+import json
+from database import init_db, get_connection
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ def calculate_distance(desc1, desc2):
 
 app = FastAPI()
 
+init_db()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -37,8 +39,15 @@ def upload_face(request: FaceUploadRequest):
     descriptor_length = len(request.descriptor)
     print(f"Received descriptor length: {descriptor_length}")
     print(f"Stored user: {request.email}")
-    # store minimal user info in memory using email as key
-    users[request.email] = {"descriptor": request.descriptor}
+
+    descriptor_json = json.dumps(request.descriptor)
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO users (email, descriptor) VALUES (?, ?)",
+        (request.email, descriptor_json),
+    )
+    conn.commit()
+    conn.close()
 
     return {
         "success": True,
@@ -53,43 +62,51 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/login", response_model=dict)
-@app.post("/login")
 def login(request: LoginRequest):
+    conn = get_connection()
+    cursor = conn.execute(
+        "SELECT descriptor FROM users WHERE email = ?",
+        (request.email,)
+    )
+    row = cursor.fetchone()
+    conn.close()
 
-    if request.email not in users:
+    if not row:
         return {
             "success": False,
             "message": "User not found"
         }
 
-    stored_descriptor = users[request.email]["descriptor"]
-
-    distance = calculate_distance(
-        stored_descriptor,
-        request.descriptor
-    )
+    stored_descriptor = json.loads(row[0])
+    distance = calculate_distance(stored_descriptor, request.descriptor)
 
     print(f"Distance: {distance}")
 
     THRESHOLD = 0.6
-    confidence = max(0, min(100, round((1 - distance) * 100, 2)))
     if distance < THRESHOLD:
         return {
             "success": True,
             "message": "Face matched. Login successful",
-            "distance": round(distance, 2),
-            "confidence": confidence
+            "distance": round(distance, 2)
         }
-    
+
     return {
         "success": False,
-        "message": "Face does not match",
-        "distance": round(distance, 2),
-        "confidence": confidence
+        "message": "Face verification failed",
+        "distance": round(distance, 2)
     }
 
 
 @app.get("/users", response_model=dict)
 def get_users():
-    """Return all registered users stored in memory."""
-    return users
+    """Return all registered users stored in SQLite."""
+    conn = get_connection()
+    cursor = conn.execute("SELECT email, descriptor FROM users")
+    rows = cursor.fetchall()
+    conn.close()
+
+    return {
+        email: {"descriptor": json.loads(descriptor_json)}
+        for email, descriptor_json in rows
+    }
+
