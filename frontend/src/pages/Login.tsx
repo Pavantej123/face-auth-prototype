@@ -3,6 +3,7 @@ import {
   getFaceDescriptor,
   getFaceQualityStatus,
 } from "../services/faceRecognitionService";
+import { verifyBlinkWithMediaPipe } from "../services/mediapipeBlinkService";
 import {
   Card,
   LinkText,
@@ -123,6 +124,12 @@ export default function Login({
     try {
       if (!videoRef.current) {
         showMessage("Camera unavailable.", "error");
+        return;
+      }
+
+      const blinkVerified = await verifyBlinkWithMediaPipe(videoRef.current, 6, 250);
+      if (!blinkVerified) {
+        showMessage("Please blink slowly to confirm liveness.", "error");
         return;
       }
 
