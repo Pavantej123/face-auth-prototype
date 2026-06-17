@@ -38,6 +38,8 @@ app.add_middleware(
 
 class FaceUploadRequest(BaseModel):
     email: str
+    first_name: Union[str, None] = None
+    last_name: Union[str, None] = None
     descriptor: Union[list[float], list[list[float]]]
     created_at: Union[str, None] = None
 
@@ -65,12 +67,17 @@ def upload_face(request: FaceUploadRequest):
 
     conn = get_connection()
     cursor = conn.execute(
-        "SELECT created_at FROM users WHERE email = ?",
+        "SELECT created_at, first_name, last_name FROM users WHERE email = ?",
         (request.email,)
     )
     row = cursor.fetchone()
-    if row and row[0]:
-        created_at = row[0]
+    if row:
+        if row[0]:
+            created_at = row[0]
+        if not request.first_name and row[1]:
+            request.first_name = row[1]
+        if not request.last_name and row[2]:
+            request.last_name = row[2]
 
     print(f"Received {descriptor_length} descriptor samples")
     print(f"Stored user: {request.email}")
@@ -78,8 +85,15 @@ def upload_face(request: FaceUploadRequest):
     descriptor_json = json.dumps(profile_descriptor)
     descriptors_json = json.dumps(descriptors)
     conn.execute(
-        "INSERT OR REPLACE INTO users (email, descriptor, descriptors, created_at) VALUES (?, ?, ?, ?)",
-        (request.email, descriptor_json, descriptors_json, created_at),
+        "INSERT OR REPLACE INTO users (email, descriptor, descriptors, created_at, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            request.email,
+            descriptor_json,
+            descriptors_json,
+            created_at,
+            request.first_name,
+            request.last_name,
+        ),
     )
     conn.commit()
     conn.close()
@@ -101,7 +115,7 @@ class LoginRequest(BaseModel):
 def login(request: LoginRequest):
     conn = get_connection()
     cursor = conn.execute(
-        "SELECT descriptors FROM users WHERE email = ?",
+        "SELECT descriptors, first_name, last_name FROM users WHERE email = ?",
         (request.email,)
     )
     row = cursor.fetchone()
@@ -128,6 +142,8 @@ def login(request: LoginRequest):
             "success": True,
             "message": "Login successful",
             "bestDistance": round(best_distance, 4),
+            "first_name": row[1] or "",
+            "last_name": row[2] or "",
         }
 
     return {
@@ -141,7 +157,7 @@ def login(request: LoginRequest):
 def get_users():
     """Return all registered users stored in SQLite."""
     conn = get_connection()
-    cursor = conn.execute("SELECT email, descriptor, descriptors, created_at FROM users")
+    cursor = conn.execute("SELECT email, descriptor, descriptors, created_at, first_name, last_name FROM users")
     rows = cursor.fetchall()
     conn.close()
 
@@ -156,9 +172,11 @@ def get_users():
             "descriptor": json.loads(descriptor_json),
             "descriptors": parse_descriptors(descriptors_json),
             "created_at": created_at,
+            "first_name": first_name,
+            "last_name": last_name,
             "sample_count": len(parse_descriptors(descriptors_json)),
         }
-        for email, descriptor_json, descriptors_json, created_at in rows
+        for email, descriptor_json, descriptors_json, created_at, first_name, last_name in rows
     }
 
 
@@ -166,7 +184,7 @@ def get_users():
 def get_user(email: str):
     conn = get_connection()
     cursor = conn.execute(
-        "SELECT email, descriptors, created_at FROM users WHERE email = ?",
+        "SELECT email, descriptors, created_at, first_name, last_name FROM users WHERE email = ?",
         (email,)
     )
     row = cursor.fetchone()
@@ -181,11 +199,13 @@ def get_user(email: str):
         result = json.loads(value)
         return result if isinstance(result, list) else [result]
 
-    email, descriptors_json, created_at = row
+    email, descriptors_json, created_at, first_name, last_name = row
     descriptors = parse_descriptors(descriptors_json)
 
     return {
         "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
         "created_at": created_at,
         "sample_count": len(descriptors),
         "status": "Registered",

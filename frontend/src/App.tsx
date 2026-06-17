@@ -1,43 +1,57 @@
-import {  useEffect,useState } from "react";
-import Register from "./pages/Register";
+import { useEffect, useState } from "react";
 import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard.tsx";
 import { loadModels } from "./services/faceApiService";
 
+type Page = "login" | "register" | "dashboard";
+type User = {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+};
+
 function App() {
-  const [page, setPage] = useState<"register" | "login">("register");
+  const [page, setPage] = useState<Page>("login");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
-  const initializeModels = async () => {
-    const success = await loadModels();
+    loadModels();
+  }, []);
 
-    if (success) {
-      console.log("Models loaded successfully");
-    } else {
-      console.error("Model loading failed");
-    }
+  const handleLoginSuccess = (user: User) => {
+    setCurrentUser(user);
+    setPage("dashboard");
   };
 
-  initializeModels();
-}, []);
+  const handleRegistrationComplete = () => {
+    setPage("login");
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setPage("login");
+  };
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Face Login Prototype</h1>
+    <div style={{ minHeight: "100vh", background: "#eef2ff" }}>
+      {page === "login" && (
+        <Login
+          onNavigateToRegister={() => setPage("register")}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      )}
 
-      <div style={{ marginBottom: "20px" }}>
-        <button
-          onClick={() => setPage("register")}
-          style={{ marginRight: "10px" }}
-        >
-          Register
-        </button>
+      {page === "register" && (
+        <Register
+          onRegistrationComplete={handleRegistrationComplete}
+          onCancel={() => setPage("login")}
+        />
+      )}
 
-        <button onClick={() => setPage("login")}>
-          Login
-        </button>
-      </div>
-
-      {page === "register" ? <Register /> : <Login />}
+      {page === "dashboard" && currentUser && (
+        <Dashboard user={currentUser} onLogout={handleLogout} />
+      )}
     </div>
   );
 }

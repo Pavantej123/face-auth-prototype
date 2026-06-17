@@ -15,7 +15,9 @@ def init_db():
         email TEXT PRIMARY KEY,
         descriptor TEXT NOT NULL,
         descriptors TEXT,
-        created_at TEXT
+        created_at TEXT,
+        first_name TEXT,
+        last_name TEXT
     )
     """)
 
@@ -25,6 +27,10 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN descriptors TEXT")
     if "created_at" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+    if "first_name" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
+    if "last_name" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN last_name TEXT")
 
     conn.commit()
     conn.close()

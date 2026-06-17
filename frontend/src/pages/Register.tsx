@@ -1,204 +1,103 @@
 import { useEffect, useRef, useState } from "react";
+import { getFaceDescriptor, getFaceQualityStatus } from "../services/faceRecognitionService";
 import {
-  getFaceDescriptor,
-  getFaceSampleInstruction,
-  getFaceSampleName,
-  getSamplePoseStatus,
-} from "../services/faceRecognitionService";
+  Card,
+  PageShell,
+  PrimaryButton,
+  StatusMessage,
+  TextInput,
+  SecondaryButton,
+} from "../components/UI";
 
-export default function Register() {
+type RegisterProps = {
+  onRegistrationComplete: () => void;
+  onCancel: () => void;
+};
+
+const sampleInstructions = [
+  "Look directly at the camera.",
+  "Slightly turn left.",
+  "Slightly turn right.",
+  "Look slightly up.",
+  "Look slightly down.",
+];
+
+export default function Register({ onRegistrationComplete, onCancel }: RegisterProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-
   const [email, setEmail] = useState<string>("");
-  const [capturedImage, setCapturedImage] = useState<string>("");
+  const [firstName, setFirstName] = useState<string>("");
+  const [lastName, setLastName] = useState<string>("");
   const [descriptorSamples, setDescriptorSamples] = useState<number[][]>([]);
   const [message, setMessage] = useState<string>("");
+  const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [loading, setLoading] = useState<boolean>(false);
-  const [samplePoseStatus, setSamplePoseStatus] = useState<{
-    ready: boolean;
-    message: string;
-  }>({ ready: false, message: "No face detected" });
-  const [profile, setProfile] = useState<{
-    email: string;
-    created_at: string;
-    sample_count: number;
-    status: "Registered" | "Not Registered";
-  } | null>(null);
-  const [profileLoading, setProfileLoading] = useState<boolean>(false);
-  const sampleNumber = Math.min(descriptorSamples.length + 1, 5);
-  const currentPoseName = getFaceSampleName(sampleNumber);
-  const [messageType, setMessageType] = useState<
-    "success" | "warning" | "error"
-  >("success");
+  const [faceReady, setFaceReady] = useState(false);
+  const [registrationStarted, setRegistrationStarted] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const showMessage = (
-    text: string,
-    type: "success" | "warning" | "error" = "success"
-  ) => {
+  const currentSample = Math.min(descriptorSamples.length + 1, 5);
+  const samplesComplete = descriptorSamples.length >= 5;
+
+  const showMessage = (text: string, type: "success" | "error") => {
     setMessage(text);
     setMessageType(type);
   };
 
-  const fetchUserProfile = async (emailAddress: string) => {
-    if (!emailAddress) {
-      setProfile(null);
-      return;
-    }
-
-    setProfileLoading(true);
-    try {
-      const resp = await fetch(
-        `http://127.0.0.1:8000/user?email=${encodeURIComponent(emailAddress)}`
-      );
-      if (resp.status === 404) {
-        setProfile({
-          email: emailAddress,
-          created_at: "",
-          sample_count: 0,
-          status: "Not Registered",
-        });
-        return;
-      }
-
-      if (!resp.ok) {
-        setProfile(null);
-        return;
-      }
-
-      const data = await resp.json();
-      setProfile({
-        email: data.email,
-        created_at: data.created_at,
-        sample_count: data.sample_count,
-        status: data.status,
-      });
-    } catch (error) {
-      console.error("Profile load failed:", error);
-      setProfile(null);
-    } finally {
-      setProfileLoading(false);
-    }
-  };
-
-  const handleDeleteRegistration = async () => {
-    if (!email) {
-      showMessage("Enter the registered email first.", "warning");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const resp = await fetch(
-        `http://127.0.0.1:8000/user?email=${encodeURIComponent(email)}`,
-        { method: "DELETE" }
-      );
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        showMessage(err.detail || "Unable to delete registration.", "error");
-        return;
-      }
-
-      setProfile({
-        email,
-        created_at: "",
-        sample_count: 0,
-        status: "Not Registered",
-      });
-      setDescriptorSamples([]);
-      setCapturedImage("");
-      showMessage("Registration deleted.", "success");
-    } catch (error) {
-      console.error("Delete failed:", error);
-      showMessage("Unable to delete registration.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetSamples = async () => {
-    setDescriptorSamples([]);
-    setCapturedImage("");
-    showMessage("You can now capture new face samples.", "success");
-  };
-
-  const getMessageColor = () => {
-    if (messageType === "success") return "#1a7f37";
-    if (messageType === "warning") return "#b06500";
-    return "#c92a2a";
-  };
-
   useEffect(() => {
-    let stream: MediaStream | null = null;
-
-    const start = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (err) {
-        showMessage("Unable to access camera.", "error");
-        console.error(err);
-      }
-    };
-
-    start();
-
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
   }, []);
 
   useEffect(() => {
+    if (!registrationStarted) {
+      return;
+    }
+
     const interval = window.setInterval(async () => {
       if (!videoRef.current || !videoRef.current.videoWidth) {
+        setFaceReady(false);
         return;
       }
 
       try {
-        const sampleNumber = Math.min(descriptorSamples.length + 1, 5);
-        const status = await getSamplePoseStatus(sampleNumber, videoRef.current);
-        setSamplePoseStatus(status);
-      } catch (err) {
-        console.error("Face position error:", err);
+        const status = await getFaceQualityStatus(videoRef.current);
+        setFaceReady(status === "Face ready");
+      } catch {
+        setFaceReady(false);
       }
     }, 500);
 
     return () => window.clearInterval(interval);
-  }, [descriptorSamples.length]);
+  }, [registrationStarted]);
 
-  const createImageElement = (
-    dataUrl: string
-  ): Promise<HTMLImageElement> =>
+  const createImageElement = (dataUrl: string): Promise<HTMLImageElement> =>
     new Promise((resolve, reject) => {
       const image = new Image();
-
       image.onload = () => resolve(image);
       image.onerror = reject;
       image.src = dataUrl;
     });
 
-  const handleCapture = async () => {
+  const captureSample = async () => {
+    console.log("Capture button clicked");
     setMessage("");
 
-    if (!samplePoseStatus.ready) {
-      showMessage(samplePoseStatus.message, "warning");
+    if (!videoRef.current) {
+      showMessage("Camera unavailable.", "error");
       return;
     }
 
-    if (!videoRef.current) return;
+    if (!faceReady) {
+      showMessage("Please align your face in the frame.", "error");
+      return;
+    }
 
     const canvas = document.createElement("canvas");
-
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
-
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext("2d");
 
     if (!ctx) {
@@ -206,500 +105,273 @@ export default function Register() {
       return;
     }
 
-    ctx.drawImage(
-      videoRef.current,
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    const imageElement = await createImageElement(canvas.toDataURL("image/png"));
+    const descriptor = await getFaceDescriptor(imageElement);
 
-    const dataUrl = canvas.toDataURL("image/png");
+    console.log("Descriptor generated", descriptor);
 
-    setCapturedImage(dataUrl);
-
-    try {
-      const imageElement = await createImageElement(dataUrl);
-
-      const faceDescriptor = await getFaceDescriptor(
-        imageElement
-      );
-
-      if (!faceDescriptor) {
-        showMessage("No face detected", "error");
-        return;
-      }
-
-      console.log(
-        "Descriptor Length:",
-        faceDescriptor.length
-      );
-
-      const nextSamples = [
-        ...descriptorSamples,
-        Array.from(faceDescriptor),
-      ];
-      setDescriptorSamples(nextSamples);
-
-      if (nextSamples.length < 5) {
-        showMessage(
-          `Sample ${nextSamples.length} of 5 captured. Please slightly change angle or distance.`,
-          "success"
-        );
-      } else {
-        showMessage(
-          "All samples collected. Click Register.",
-          "success"
-        );
-      }
-    } catch (error) {
-      console.error("Face descriptor error:", error);
-      setMessage("No face detected");
-    }
-  };
-
-  const handleRegister = async () => {
-    setMessage("");
-
-    if (!email) {
-      showMessage("Please enter an email.", "warning");
+    if (!descriptor) {
+      showMessage("Face not detected. Try again.", "error");
       return;
     }
 
-    if (descriptorSamples.length < 5) {
-      showMessage("Please capture 5 face samples before registering.", "warning");
+    setDescriptorSamples((current) => {
+      const next = [...current, Array.from(descriptor)];
+      console.log("Sample added", next.length);
+      showMessage(`Captured sample ${next.length} of 5.`, "success");
+      return next;
+    });
+  };
+
+  const startFaceRegistration = async () => {
+    if (!email.trim() || !firstName.trim() || !lastName.trim()) {
+      showMessage("Enter your email and full name before starting face registration.", "error");
+      return;
+    }
+
+    setDescriptorSamples([]);
+    setFaceReady(false);
+    console.log("Face registration started");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log("Camera stream started", stream);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch {
+          // Some browsers may require user interaction for autoplay; muted video should still work.
+        }
+      }
+      setRegistrationStarted(true);
+      showMessage("Face registration started. Capture 5 samples.", "success");
+    } catch (error) {
+      console.error("Camera initialization failed", error);
+      showMessage("Unable to access camera.", "error");
+    }
+  };
+
+  const registerUser = async () => {
+    if (!email.trim() || !firstName.trim() || !lastName.trim()) {
+      showMessage("Enter your email and full name.", "error");
+      return;
+    }
+
+    if (!samplesComplete) {
+      showMessage("Capture 5 face samples before registering.", "error");
       return;
     }
 
     setLoading(true);
-
     try {
-      const resp = await fetch(
-        "http://127.0.0.1:8000/upload-face",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            descriptor: descriptorSamples,
-            created_at: profile?.created_at || undefined,
-          }),
-        }
-      );
+      const response = await fetch("http://127.0.0.1:8000/upload-face", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          descriptor: descriptorSamples,
+        }),
+      });
 
-      if (!resp.ok) {
-        throw new Error(`Server ${resp.status}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        showMessage(data.message || "Registration failed.", "error");
+        return;
       }
 
-      const data = await resp.json();
-
-      if (data.success) {
+      showMessage("Registration Successful.", "success");
+      setTimeout(() => {
         setDescriptorSamples([]);
-        setCapturedImage("");
-        fetchUserProfile(email);
-        showMessage("Face registered successfully.", "success");
-      } else {
-        showMessage(
-          data.message || "Registration failed",
-          "error"
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      showMessage("Registration failed", "error");
+        onRegistrationComplete();
+      }, 900);
+    } catch {
+      showMessage("Registration failed.", "error");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div
-      style={{
-        maxWidth: 960,
-        margin: "1.5rem auto",
-        fontFamily: "Inter, system-ui, sans-serif",
-        color: "#111827",
-        padding: "0 1rem",
-      }}
-    >
-      <div
-        style={{
-          marginBottom: 24,
-          padding: 24,
-          borderRadius: 20,
-          background: "#f8fafc",
-          border: "1px solid #e2e8f0",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 28 }}>Register</h2>
-        <p style={{ marginTop: 8, color: "#6b7280" }}>
-          Capture your face and register with email-based face login.
-        </p>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 18,
-        }}
-      >
+    <PageShell>
+      <Card>
         <div
           style={{
-            flex: "1 1 320px",
-            minWidth: 320,
-            background: "#ffffff",
-            border: "1px solid #e5e7eb",
-            borderRadius: 20,
-            padding: 20,
-            boxShadow: "0 16px 40px rgba(15, 23, 42, 0.05)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 24,
+            alignItems: "stretch",
+            justifyContent: "space-between",
           }}
         >
-          <h3 style={{ marginTop: 0, marginBottom: 16 }}>
-            Live Camera
-          </h3>
+          <div style={{ flex: "1 1 540px", minWidth: 280, display: "grid", gap: 20 }}>
+            <div>
+              <h1 style={{ fontSize: 34, margin: 0, color: "#111827" }}>Register</h1>
+              <p style={{ marginTop: 12, color: "#475569", lineHeight: 1.7 }}>
+                Create a face login profile with your email, name, and a few camera samples.
+              </p>
+            </div>
 
-          <label
-            style={{
-              display: "block",
-              marginBottom: 14,
-              color: "#374151",
-              fontWeight: 600,
-            }}
-          >
-            Email address
-            <input
+            <TextInput
+              placeholder="First name"
+              value={firstName}
+              onChange={(event) => setFirstName(event.target.value)}
+            />
+            <TextInput
+              placeholder="Last name"
+              value={lastName}
+              onChange={(event) => setLastName(event.target.value)}
+            />
+            <TextInput
               type="email"
+              placeholder="Email address"
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-              }}
-              onBlur={() => fetchUserProfile(email)}
-              placeholder="Enter your email"
-              style={{
-                width: "100%",
-                marginTop: 8,
-                padding: "12px 14px",
-                borderRadius: 12,
-                border: "1px solid #d1d5db",
-                background: "#f9fafb",
-                color: "#111827",
-              }}
+              onChange={(event) => setEmail(event.target.value)}
             />
-          </label>
 
-          <div
-            style={{
-              position: "relative",
-              borderRadius: 16,
-              overflow: "hidden",
-              background: "#f3f4f6",
-              height: 240,
-              marginBottom: 16,
-            }}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
+            <div style={{ display: "grid", gap: 10, padding: 18, borderRadius: 18, background: "#f8fafc" }}>
+              <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>Registration instructions</p>
+              <p style={{ margin: 0, color: "#475569", fontSize: 14, lineHeight: 1.7 }}>
+                Enter your name and email, then proceed to face registration to capture 5 samples.
+              </p>
+            </div>
+
+            {!registrationStarted ? (
+              <PrimaryButton onClick={startFaceRegistration} disabled={loading}>
+                Proceed to Face Registration
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={registerUser} disabled={!samplesComplete || loading}>
+                {loading ? "Registering..." : "Complete Registration"}
+              </PrimaryButton>
+            )}
+
+            <SecondaryButton onClick={onCancel} disabled={loading}>
+              Back to login
+            </SecondaryButton>
+
+            {message && <StatusMessage message={message} type={messageType} />}
+          </div>
+
+          <div style={{ flex: "0 0 320px", minWidth: 280, display: "grid", gap: 16 }}>
             <div
               style={{
-                position: "absolute",
-                inset: 0,
-                pointerEvents: "none",
+                borderRadius: 24,
+                background: "#f8fafc",
+                padding: 16,
+                boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
               }}
             >
+              <p style={{ margin: 0, marginBottom: 12, color: "#334155", fontSize: 15, fontWeight: 700 }}>
+                Camera preview
+              </p>
               <div
                 style={{
-                  position: "absolute",
-                  top: 16,
-                  left: 16,
-                  zIndex: 2,
-                  background: "rgba(255,255,255,0.88)",
-                  borderRadius: 999,
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  color: "#111827",
-                  fontWeight: 600,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
+                  width: "100%",
+                  height: 225,
+                  borderRadius: 18,
+                  overflow: "hidden",
+                  background: "#111827",
+                  position: "relative",
                 }}
               >
-                <span
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
                   style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    backgroundColor: samplePoseStatus.ready ? "#16a34a" : "#dc2626",
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: registrationStarted ? "block" : "none",
                   }}
                 />
-                Sample {sampleNumber} of 5 · {currentPoseName}
-              </div>
-
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <div
-                  style={{
-                    position: "relative",
-                    width: "62%",
-                    height: "72%",
-                  }}
-                >
+                {!registrationStarted && (
                   <div
                     style={{
                       position: "absolute",
                       inset: 0,
-                      borderRadius: "50% / 40%",
-                      border: `3px solid ${samplePoseStatus.ready ? "#16a34a" : "#dc2626"}`,
-                      boxSizing: "border-box",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#e2e8f0",
+                      padding: 16,
+                      textAlign: "center",
                     }}
-                  />
+                  >
+                    <span>Start face registration to show live camera.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {registrationStarted ? (
+              <div
+                style={{
+                  borderRadius: 24,
+                  background: "#ffffff",
+                  padding: 18,
+                  boxShadow: "0 20px 40px rgba(15, 23, 42, 0.06)",
+                  border: "1px solid #e2e8f0",
+                  display: "grid",
+                  gap: 12,
+                }}
+              >
+                <p style={{ margin: 0, color: "#334155", fontWeight: 700 }}>Face registration progress</p>
+                <p style={{ margin: 0, color: "#475569", fontSize: 14 }}>
+                  {descriptorSamples.length} of 5 samples captured.
+                </p>
+                <p style={{ margin: 0, color: "#475569", fontSize: 14, fontWeight: 600 }}>
+                  {sampleInstructions[currentSample - 1]}
+                </p>
+                <div
+                  style={{
+                    marginTop: 8,
+                    height: 10,
+                    borderRadius: 999,
+                    background: "#e2e8f0",
+                    overflow: "hidden",
+                  }}
+                >
                   <div
                     style={{
-                      position: "absolute",
-                      inset: "14%",
-                      borderRadius: "50% / 40%",
-                      border: `1px dashed ${samplePoseStatus.ready ? "#16a34a" : "#dc2626"}`,
+                      width: `${(descriptorSamples.length / 5) * 100}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      background: "#2563eb",
+                      transition: "width 0.25s ease",
                     }}
                   />
                 </div>
+
+                <PrimaryButton onClick={captureSample} disabled={samplesComplete || loading}>
+                  {samplesComplete ? "Samples complete" : `Capture sample ${currentSample}`}
+                </PrimaryButton>
               </div>
-
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              onClick={handleCapture}
-              disabled={!samplePoseStatus.ready || descriptorSamples.length >= 5}
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "none",
-                cursor:
-                  samplePoseStatus.ready && descriptorSamples.length < 5
-                    ? "pointer"
-                    : "not-allowed",
-                background:
-                  samplePoseStatus.ready && descriptorSamples.length < 5
-                    ? "#2563eb"
-                    : "#93c5fd",
-                color: "#ffffff",
-                fontWeight: 600,
-              }}
-            >
-              {descriptorSamples.length < 5
-                ? `Capture sample ${descriptorSamples.length + 1} of 5`
-                : "Capture complete"}
-            </button>
-            <button
-              onClick={handleRegister}
-              disabled={loading || descriptorSamples.length < 5}
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "1px solid #d1d5db",
-                background: descriptorSamples.length < 5 ? "#f8fafc" : "#ffffff",
-                color: descriptorSamples.length < 5 ? "#6b7280" : "#111827",
-                cursor:
-                  loading || descriptorSamples.length < 5
-                    ? "not-allowed"
-                    : "pointer",
-                fontWeight: 600,
-              }}
-            >
-              {loading ? "Registering..." : "Register"}
-            </button>
-          </div>
-          <p
-            style={{
-              marginTop: 10,
-              color: "#374151",
-              fontSize: 14,
-            }}
-          >
-            Samples captured: {descriptorSamples.length} of 5
-          </p>
-          <p
-            style={{
-              marginTop: 10,
-              color: "#1f2937",
-              fontSize: 15,
-              fontWeight: 600,
-            }}
-          >
-            {getFaceSampleInstruction(
-              Math.min(descriptorSamples.length + 1, 5)
+            ) : (
+              <div
+                style={{
+                  borderRadius: 24,
+                  background: "#f8fafc",
+                  padding: 18,
+                  boxShadow: "0 20px 40px rgba(15, 23, 42, 0.06)",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <p style={{ margin: 0, color: "#334155", fontWeight: 700 }}>Ready to begin</p>
+                <p style={{ margin: "8px 0 0", color: "#475569", fontSize: 14 }}>
+                  Complete the form on the left and proceed to face registration.
+                </p>
+              </div>
             )}
-          </p>
-          <p
-            style={{
-              marginTop: 14,
-              color: getMessageColor(),
-              minHeight: 24,
-              fontWeight: 600,
-            }}
-          >
-            {message || samplePoseStatus.message}
-          </p>
-          <p style={{ marginTop: 4, color: "#6b7280" }}>
-            {descriptorSamples.length < 5
-              ? "Please capture a mix of angles and distances for better recognition."
-              : "All samples captured. Ready to register."}
-          </p>
-        </div>
-
-        <div
-          style={{
-            flex: "1 1 320px",
-            minWidth: 320,
-            background: "#ffffff",
-            border: "1px solid #e5e7eb",
-            borderRadius: 20,
-            padding: 20,
-            boxShadow: "0 16px 40px rgba(15, 23, 42, 0.05)",
-          }}
-        >
-          <h3 style={{ marginTop: 0, marginBottom: 16 }}>
-            Registration Profile
-          </h3>
-          <div
-            style={{
-              marginBottom: 20,
-              padding: 18,
-              borderRadius: 16,
-              background: "#f8fafc",
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>
-              Status
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: 18, fontWeight: 700 }}>
-              {profileLoading ? "Loading..." : profile?.status || "Not Registered"}
-            </p>
-          </div>
-          <div
-            style={{
-              marginBottom: 16,
-              padding: 18,
-              borderRadius: 16,
-              background: "#f8fafc",
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>
-              Registered email
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 600 }}>
-              {profile?.email || "None"}
-            </p>
-            <p style={{ margin: "12px 0 0", color: "#6b7280", fontSize: 14 }}>
-              Registered on
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: 15 }}>
-              {profile?.created_at ? new Date(profile.created_at).toLocaleString() : "-"}
-            </p>
-            <p style={{ margin: "12px 0 0", color: "#6b7280", fontSize: 14 }}>
-              Samples stored
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: 15 }}>
-              {profile?.sample_count ?? 0}
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              onClick={handleDeleteRegistration}
-              disabled={loading || !profile || profile.status !== "Registered"}
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "1px solid #dc2626",
-                background: profile?.status === "Registered" ? "#fee2e2" : "#f8fafc",
-                color: profile?.status === "Registered" ? "#991b1b" : "#6b7280",
-                cursor:
-                  loading || !profile || profile.status !== "Registered"
-                    ? "not-allowed"
-                    : "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Delete registration
-            </button>
-            <button
-              onClick={handleResetSamples}
-              disabled={loading}
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "1px solid #2563eb",
-                background: "#eff6ff",
-                color: "#1d4ed8",
-                cursor: loading ? "not-allowed" : "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Re-register samples
-            </button>
           </div>
         </div>
-
-        <div
-          style={{
-            flex: "1 1 320px",
-            minWidth: 320,
-            minHeight: 240,
-            borderRadius: 16,
-            border: "1px solid #d1d5db",
-            background: "#f8fafc",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-          }}
-        >
-          {capturedImage ? (
-            <img
-              src={capturedImage}
-              alt="captured preview"
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
-          ) : (
-            <span style={{ color: "#6b7280" }}>
-              Preview will appear here after capture.
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
+      </Card>
+    </PageShell>
   );
 }
